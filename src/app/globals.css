@@ -3,78 +3,111 @@
 @tailwind utilities;
 
 body {
-  font-family: Arial, Helvetica, sans-serif;
+  /* Use a system font stack for better cross-platform compatibility */
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
 }
 
 @layer base {
   :root {
-    --background: 0 0% 100%;
-    --foreground: 0 0% 3.9%;
-    --card: 0 0% 100%;
-    --card-foreground: 0 0% 3.9%;
-    --popover: 0 0% 100%;
-    --popover-foreground: 0 0% 3.9%;
-    --primary: 0 0% 9%;
-    --primary-foreground: 0 0% 98%;
-    --secondary: 0 0% 96.1%;
-    --secondary-foreground: 0 0% 9%;
-    --muted: 0 0% 96.1%;
-    --muted-foreground: 0 0% 45.1%;
-    --accent: 0 0% 96.1%;
-    --accent-foreground: 0 0% 9%;
-    --destructive: 0 84.2% 60.2%;
-    --destructive-foreground: 0 0% 98%;
-    --border: 0 0% 89.8%;
-    --input: 0 0% 89.8%;
-    --ring: 0 0% 3.9%;
+    /* Color Palette: PawsibleMatch Theme */
+    /* Primary: Light Green (#A7D1AB) -> HSL(128, 32%, 74%) */
+    /* Secondary: Cream (#F5F5DC) -> HSL(60, 56%, 91%) - Used for Background */
+    /* Accent: Earthy Orange (#D2691E) -> HSL(25, 74%, 47%) */
+
+    --background: 60 56% 91%; /* Cream */
+    --foreground: 20 15% 25%; /* Dark Brown/Grey for text */
+
+    --card: 60 56% 91%; /* Cream */
+    --card-foreground: 20 15% 25%; /* Dark Brown/Grey */
+
+    --popover: 60 56% 91%; /* Cream */
+    --popover-foreground: 20 15% 25%; /* Dark Brown/Grey */
+
+    --primary: 128 32% 74%; /* Light Green */
+    --primary-foreground: 128 50% 10%; /* Dark Green for text on primary */
+
+    --secondary: 60 20% 85%; /* Lighter Grey/Cream */
+    --secondary-foreground: 20 15% 25%; /* Dark Brown/Grey */
+
+    --muted: 60 20% 88%; /* Very Light Grey/Cream */
+    --muted-foreground: 20 10% 45%; /* Medium Grey/Brown */
+
+    --accent: 25 74% 47%; /* Earthy Orange */
+    --accent-foreground: 30 100% 98%; /* White/Very Light Orange */
+
+    --destructive: 0 72% 51%; /* Standard Red */
+    --destructive-foreground: 0 0% 98%; /* White */
+
+    --border: 60 15% 80%; /* Slightly darker cream/grey */
+    --input: 60 15% 85%; /* Slightly darker cream/grey for input */
+    --ring: 25 74% 55%; /* Brighter Orange for focus rings */
+
+    --radius: 0.5rem;
+
+    /* Chart Colors (kept defaults, adjust if needed) */
     --chart-1: 12 76% 61%;
     --chart-2: 173 58% 39%;
     --chart-3: 197 37% 24%;
     --chart-4: 43 74% 66%;
     --chart-5: 27 87% 67%;
-    --radius: 0.5rem;
-    --sidebar-background: 0 0% 98%;
-    --sidebar-foreground: 240 5.3% 26.1%;
-    --sidebar-primary: 240 5.9% 10%;
-    --sidebar-primary-foreground: 0 0% 98%;
-    --sidebar-accent: 240 4.8% 95.9%;
-    --sidebar-accent-foreground: 240 5.9% 10%;
-    --sidebar-border: 220 13% 91%;
-    --sidebar-ring: 217.2 91.2% 59.8%;
+
+    /* Sidebar Colors (kept defaults, adjust if needed) */
+    --sidebar-background: 60 20% 95%; /* Lighter Cream for Sidebar */
+    --sidebar-foreground: 20 15% 25%;
+    --sidebar-primary: 128 32% 65%; /* Slightly darker Green */
+    --sidebar-primary-foreground: 128 50% 10%;
+    --sidebar-accent: 25 74% 50%; /* Slightly darker Orange */
+    --sidebar-accent-foreground: 30 100% 98%;
+    --sidebar-border: 60 15% 80%;
+    --sidebar-ring: 25 74% 55%;
   }
+
   .dark {
-    --background: 0 0% 3.9%;
-    --foreground: 0 0% 98%;
-    --card: 0 0% 3.9%;
-    --card-foreground: 0 0% 98%;
-    --popover: 0 0% 3.9%;
-    --popover-foreground: 0 0% 98%;
-    --primary: 0 0% 98%;
-    --primary-foreground: 0 0% 9%;
-    --secondary: 0 0% 14.9%;
-    --secondary-foreground: 0 0% 98%;
-    --muted: 0 0% 14.9%;
-    --muted-foreground: 0 0% 63.9%;
-    --accent: 0 0% 14.9%;
-    --accent-foreground: 0 0% 98%;
-    --destructive: 0 62.8% 30.6%;
-    --destructive-foreground: 0 0% 98%;
-    --border: 0 0% 14.9%;
-    --input: 0 0% 14.9%;
-    --ring: 0 0% 83.1%;
-    --chart-1: 220 70% 50%;
-    --chart-2: 160 60% 45%;
-    --chart-3: 30 80% 55%;
-    --chart-4: 280 65% 60%;
-    --chart-5: 340 75% 55%;
-    --sidebar-background: 240 5.9% 10%;
-    --sidebar-foreground: 240 4.8% 95.9%;
-    --sidebar-primary: 224.3 76.3% 48%;
-    --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 240 3.7% 15.9%;
-    --sidebar-accent-foreground: 240 4.8% 95.9%;
-    --sidebar-border: 240 3.7% 15.9%;
-    --sidebar-ring: 217.2 91.2% 59.8%;
+    /* Define dark theme variables - Inverting or creating a dark variant */
+    --background: 20 15% 10%; /* Dark Brown/Grey */
+    --foreground: 60 30% 90%; /* Light Cream */
+
+    --card: 20 15% 12%; /* Slightly lighter Dark Brown/Grey */
+    --card-foreground: 60 30% 90%; /* Light Cream */
+
+    --popover: 20 15% 10%; /* Dark Brown/Grey */
+    --popover-foreground: 60 30% 90%; /* Light Cream */
+
+    --primary: 128 32% 65%; /* Slightly darker Green */
+    --primary-foreground: 128 50% 10%; /* Dark Green */
+
+    --secondary: 20 15% 20%; /* Darker Grey */
+    --secondary-foreground: 60 30% 90%; /* Light Cream */
+
+    --muted: 20 15% 15%; /* Very Dark Grey */
+    --muted-foreground: 60 15% 65%; /* Medium Grey/Cream */
+
+    --accent: 25 74% 55%; /* Brighter Orange */
+    --accent-foreground: 25 100% 10%; /* Very Dark Brown/Orange */
+
+    --destructive: 0 63% 45%; /* Slightly darker Red */
+    --destructive-foreground: 0 0% 98%; /* White */
+
+    --border: 20 15% 25%; /* Dark Grey border */
+    --input: 20 15% 20%; /* Dark Grey input */
+    --ring: 25 74% 60%; /* Lighter Orange for focus rings */
+
+    /* Chart Colors (adjust for dark mode) */
+    --chart-1: 12 76% 71%;
+    --chart-2: 173 58% 49%;
+    --chart-3: 197 37% 34%;
+    --chart-4: 43 74% 76%;
+    --chart-5: 27 87% 77%;
+
+    /* Sidebar Colors (dark mode) */
+    --sidebar-background: 20 15% 8%;
+    --sidebar-foreground: 60 30% 90%;
+    --sidebar-primary: 128 32% 65%;
+    --sidebar-primary-foreground: 128 50% 10%;
+    --sidebar-accent: 25 74% 55%;
+    --sidebar-accent-foreground: 25 100% 10%;
+    --sidebar-border: 20 15% 25%;
+    --sidebar-ring: 25 74% 60%;
   }
 }
 
@@ -84,5 +117,8 @@ body {
   }
   body {
     @apply bg-background text-foreground;
+    /* Improve font rendering */
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
   }
 }

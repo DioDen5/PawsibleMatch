@@ -17,8 +17,11 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { PlusCircle, Upload } from "lucide-react";
+import { PlusCircle, Upload, RefreshCcw, Ban } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/context/auth-context"; // Import useAuth
+import { useRouter } from "next/navigation";
+import { useEffect } from "react";
 
 
 // Define Zod schema for form validation
@@ -33,6 +36,22 @@ const formSchema = z.object({
 
 export default function SubmitFoundAnimalPage() {
   const { toast } = useToast();
+  const { user, loading, isVerified, isAuthenticated } = useAuth(); // Use auth context
+  const router = useRouter();
+
+  // Redirect if not authenticated or verified (though middleware should handle this)
+  useEffect(() => {
+    if (!loading && (!isAuthenticated || !isVerified)) {
+      toast({
+        title: "Access Denied",
+        description: "You must be logged in and verified to submit found animals.",
+        variant: "destructive",
+      });
+       // Redirect logic is primarily handled by middleware, this is a fallback.
+       // router.push('/auth/login');
+    }
+  }, [loading, isAuthenticated, isVerified, router, toast]);
+
 
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
@@ -46,25 +65,52 @@ export default function SubmitFoundAnimalPage() {
 
   // Define a submit handler.
   async function onSubmit(values: z.infer<typeof formSchema>) {
+    if (!user) {
+        toast({ title: "Error", description: "You must be logged in.", variant: "destructive"});
+        return;
+    }
     // TODO: Implement actual submission logic:
     // 1. Upload photo to Firebase Storage (if provided)
     // 2. Get the download URL.
-    // 3. Create a 'transferRequests' document in Firestore with status 'pending'.
-    //    - Include fromUserId (get current logged-in user ID)
-    //    - Include toShelterId (need a way to select or assign a default shelter)
+    // 3. Create a 'transferRequests' or 'foundAnimals' document in Firestore with status 'pending'.
+    //    - Include fromUserId (user.uid)
+    //    - Include toShelterId (need a way to select or assign a nearby shelter based on location - requires Geolocation/Maps API)
     //    - Include animalType, description, location, photo URL, createdAt.
 
-    console.log("Form Submitted:", values);
+    console.log("Form Submitted by:", user.uid, "Values:", values);
     // Simulate API call
     await new Promise(resolve => setTimeout(resolve, 1000));
 
     toast({
       title: "Submission Received!",
-      description: "Thank you for helping this animal. A local shelter will be notified.",
+      description: "Thank you for helping this animal. A local shelter will be notified based on the location provided.",
       variant: "default", // Use 'default' which aligns with primary color (light green)
     });
     form.reset(); // Reset form after successful submission
   }
+
+   if (loading) {
+     return (
+         <div className="flex justify-center items-center min-h-[60vh]">
+             <RefreshCcw className="h-8 w-8 animate-spin text-primary" />
+             <p className="ml-2">Loading...</p>
+         </div>
+     );
+   }
+
+   if (!isAuthenticated || !isVerified) {
+      // Middleware should redirect, but show a message just in case
+       return (
+             <div className="flex justify-center items-center min-h-[60vh]">
+                 <Card className="w-full max-w-md text-center p-6">
+                    <Ban className="h-12 w-12 text-destructive mx-auto mb-4"/>
+                     <CardTitle>Access Denied</CardTitle>
+                     <CardDescription className="mt-2">You need to be logged in and have a verified email address to access this page.</CardDescription>
+                     <Button onClick={() => router.push('/auth/login')} className="mt-4">Go to Login</Button>
+                 </Card>
+             </div>
+         );
+   }
 
 
   return (
@@ -139,7 +185,7 @@ export default function SubmitFoundAnimalPage() {
                     <Input placeholder="Street address, City, State, or intersection" {...field} />
                   </FormControl>
                    <FormDescription>
-                      Where did you find the animal? Be specific if possible.
+                      Where did you find the animal? Be specific if possible. (This will help notify the correct shelters)
                    </FormDescription>
                   <FormMessage />
                 </FormItem>

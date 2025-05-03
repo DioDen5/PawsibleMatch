@@ -1,0 +1,277 @@
+"use client";
+
+import { zodResolver } from "@hookform/resolvers/zod";
+import { useForm } from "react-hook-form";
+import { z } from "zod";
+import { Button } from "@/components/ui/button";
+import {
+  Form,
+  FormControl,
+  FormDescription,
+  FormField,
+  FormItem,
+  FormLabel,
+  FormMessage,
+} from "@/components/ui/form";
+import { Input } from "@/components/ui/input";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { LogIn, Mail, Key, UserPlus } from "lucide-react";
+import { useToast } from "@/hooks/use-toast";
+import { useRouter } from 'next/navigation';
+import Link from 'next/link';
+import { signInWithEmailAndPassword, GoogleAuthProvider, signInWithPopup } from "firebase/auth";
+import { auth } from "@/lib/firebase";
+import { getUserProfile, createUserProfile } from "@/lib/user-service";
+import { useState } from "react";
+import { Separator } from "@/components/ui/separator";
+import SelectRoleDialog from "@/components/auth/select-role-dialog";
+
+// Define Zod schema for login form validation
+const formSchema = z.object({
+  email: z.string().email({ message: "Please enter a valid email address." }),
+  password: z.string().min(1, { message: "Password is required." }),
+});
+
+export default function LoginPage() {
+  const { toast } = useToast();
+  const router = useRouter();
+  const [isLoading, setIsLoading] = useState(false);
+  const [isGoogleLoading, setIsGoogleLoading] = useState(false);
+  const [showRoleDialog, setShowRoleDialog] = useState(false);
+  const [pendingUser, setPendingUser] = useState<import("firebase/auth").User | null>(null);
+
+
+  const form = useForm<z.infer<typeof formSchema>>({
+    resolver: zodResolver(formSchema),
+    defaultValues: {
+      email: "",
+      password: "",
+    },
+  });
+
+  const handleLoginRedirect = (profile: import('@/types/user').UserProfile | null, isVerified: boolean) => {
+      if (!isVerified) {
+          router.push('/auth/verify-email');
+      } else if (profile?.role === 'volunteer') {
+          router.push('/dashboard/volunteer');
+      } else if (profile?.role === 'shelter') {
+          router.push('/dashboard/shelter');
+      } else {
+          // Fallback or if role is somehow missing, maybe prompt role selection again or go to a default dashboard
+          console.warn('User logged in but role unclear or missing, redirecting to default dashboard.');
+          router.push('/dashboard'); // Adjust as needed
+      }
+  };
+
+  // Email/Password Login Handler
+  async function onSubmit(values: z.infer<typeof formSchema>) {
+    setIsLoading(true);
+    try {
+      const userCredential = await signInWithEmailAndPassword(auth, values.email, values.password);
+      const user = userCredential.user;
+
+      if (user) {
+          await user.reload(); // Refresh user state to get latest emailVerified status
+          const profile = await getUserProfile(user.uid);
+
+          if (!profile) {
+              // This case shouldn't ideally happen if signup forces profile creation,
+              // but handle defensively. Maybe prompt role selection.
+              console.error("User exists in Auth but not Firestore. Prompting role selection.");
+              setPendingUser(user);
+              setShowRoleDialog(true);
+              // Don't redirect yet, wait for role selection
+          } else {
+              handleLoginRedirect(profile, user.emailVerified);
+              toast({
+                title: "Login Successful",
+                description: `Welcome back${profile.displayName ? `, ${profile.displayName}` : ''}!`,
+              });
+          }
+      }
+    } catch (error: any) {
+      console.error("Login Error:", error);
+      let errorMessage = "An error occurred during login. Please try again.";
+      if (error.code === 'auth/invalid-credential' || error.code === 'auth/user-not-found' || error.code === 'auth/wrong-password') {
+          errorMessage = "Invalid email or password.";
+      } else if (error.code === 'auth/too-many-requests') {
+          errorMessage = "Too many login attempts. Please try again later.";
+      }
+      toast({
+        title: "Login Failed",
+        description: errorMessage,
+        variant: "destructive",
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
+  // Google Sign-In Handler
+  const handleGoogleSignIn = async () => {
+    setIsGoogleLoading(true);
+    const provider = new GoogleAuthProvider();
+    try {
+      const result = await signInWithPopup(auth, provider);
+      const user = result.user;
+
+      if (user) {
+        // Check if user profile already exists in Firestore
+        let profile = await getUserProfile(user.uid);
+
+        if (!profile) {
+          // First-time Google Sign-in, prompt for role
+          console.log("First time Google sign-in, prompting for role selection.");
+          setPendingUser(user);
+          setShowRoleDialog(true);
+          // Don't redirect yet, wait for role selection
+        } else {
+          // User profile exists, redirect based on role and verification
+          // Google sign-in automatically verifies email or uses verified Google account
+          handleLoginRedirect(profile, true); // Assume verified for Google sign-in
+           toast({
+                title: "Login Successful",
+                description: `Welcome back${profile.displayName ? `, ${profile.displayName}` : ''}!`,
+           });
+        }
+      }
+    } catch (error: any) {
+      console.error("Google Sign-In Error:", error);
+      toast({
+        title: "Google Sign-In Failed",
+        description: error.message || "An error occurred. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsGoogleLoading(false);
+    }
+  };
+
+   const handleRoleSelected = async (selectedRole: import('@/types/user').UserRole) => {
+        if (!pendingUser) return;
+
+        setIsLoading(true); // Use main loading state
+        setShowRoleDialog(false);
+
+        try {
+            // Google users are considered verified by default
+            const isVerified = pendingUser.providerData.some(p => p.providerId === GoogleAuthProvider.PROVIDER_ID) || pendingUser.emailVerified;
+
+            await createUserProfile(pendingUser, selectedRole, isVerified);
+            const updatedProfile = await getUserProfile(pendingUser.uid); // Fetch the newly created profile
+
+            handleLoginRedirect(updatedProfile, isVerified);
+            toast({
+                title: "Account Setup Complete",
+                description: `Welcome ${pendingUser.displayName || 'User'}! Your role is set to ${selectedRole}.`,
+            });
+
+        } catch (error) {
+             console.error("Error creating profile after role selection:", error);
+             toast({
+                title: "Setup Error",
+                description: "Could not save your role. Please try logging in again.",
+                variant: "destructive",
+             });
+        } finally {
+            setIsLoading(false);
+            setPendingUser(null);
+        }
+    };
+
+
+  return (
+    <>
+        <Card className="w-full max-w-md mx-auto shadow-lg">
+        <CardHeader>
+            <CardTitle className="flex items-center justify-center gap-2 text-2xl">
+            <LogIn className="h-6 w-6 text-primary" /> Login to PawsibleMatch
+            </CardTitle>
+            <CardDescription className="text-center">
+            Access your account or sign up to get started.
+            </CardDescription>
+        </CardHeader>
+        <CardContent>
+            <Form {...form}>
+            <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+                {/* Email */}
+                <FormField
+                control={form.control}
+                name="email"
+                render={({ field }) => (
+                    <FormItem>
+                    <FormLabel className="flex items-center gap-1"><Mail className="h-4 w-4"/> Email</FormLabel>
+                    <FormControl>
+                        <Input type="email" placeholder="you@example.com" {...field} />
+                    </FormControl>
+                    <FormMessage />
+                    </FormItem>
+                )}
+                />
+
+                {/* Password */}
+                <FormField
+                control={form.control}
+                name="password"
+                render={({ field }) => (
+                    <FormItem>
+                    <FormLabel className="flex items-center gap-1"><Key className="h-4 w-4"/> Password</FormLabel>
+                    <FormControl>
+                        <Input type="password" placeholder="••••••••" {...field} />
+                    </FormControl>
+                     <FormDescription className="text-right">
+                         <Link href="/auth/forgot-password" className="text-xs text-muted-foreground hover:text-primary underline">
+                            Forgot password?
+                         </Link>
+                     </FormDescription>
+                    <FormMessage />
+                    </FormItem>
+                )}
+                />
+
+                <Button type="submit" className="w-full bg-accent hover:bg-accent/90 text-accent-foreground" disabled={isLoading || isGoogleLoading}>
+                {isLoading ? "Logging in..." : "Login"}
+                </Button>
+            </form>
+            </Form>
+
+            <Separator className="my-6" />
+
+            <div className="space-y-4">
+                 <Button variant="outline" className="w-full" onClick={handleGoogleSignIn} disabled={isLoading || isGoogleLoading}>
+                    {isGoogleLoading ? (
+                         <span className="animate-pulse">Connecting...</span>
+                    ) : (
+                        <>
+                            <svg role="img" viewBox="0 0 24 24" className="mr-2 h-4 w-4"><path fill="currentColor" d="M12.48 10.92v3.28h7.84c-.24 1.84-.85 3.18-1.73 4.1-1.05 1.05-2.83 3.18-5.18 3.18-4.51 0-8.15-3.52-8.15-8.15 0-4.63 3.64-8.15 8.15-8.15 2.53 0 4.14.99 5.18 2.05l2.75-2.75C19.51 1.47 16.69.26 12.48.26 5.83.26 0 5.83 0 12.48s5.83 12.22 12.48 12.22c6.94 0 11.38-4.93 11.38-11.7 0-.75-.06-1.43-.18-2.1H12.48z"></path></svg>
+                            Sign in with Google
+                        </>
+                    )}
+
+                </Button>
+
+                <p className="text-center text-sm text-muted-foreground">
+                    Don't have an account?{' '}
+                    <Link href="/auth/signup" className="font-medium text-primary hover:underline">
+                        Sign up here
+                    </Link>
+                </p>
+            </div>
+
+        </CardContent>
+        </Card>
+
+        <SelectRoleDialog
+            isOpen={showRoleDialog}
+            onClose={() => {
+                setShowRoleDialog(false);
+                setPendingUser(null); // Clear pending user if dialog is closed without selection
+                setIsLoading(false); // Reset loading state
+                setIsGoogleLoading(false);
+            }}
+            onRoleSelect={handleRoleSelected}
+            isLoading={isLoading} // Pass loading state
+        />
+    </>
+  );
+}

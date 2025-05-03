@@ -5,6 +5,7 @@ import { Header } from '@/components/layout/header';
 import { Footer } from '@/components/layout/footer';
 import { Toaster } from "@/components/ui/toaster"
 import { cn } from '@/lib/utils';
+import { AuthProvider } from '@/context/auth-context'; // Import AuthProvider
 
 const inter = Inter({ subsets: ['latin'], variable: '--font-sans' });
 
@@ -26,10 +27,12 @@ export default function RootLayout({
           inter.variable
         )}
       >
-        <Header />
-        <main className="flex-grow container mx-auto px-4 py-8">{children}</main>
-        <Footer />
-        <Toaster />
+        <AuthProvider> {/* Wrap everything with AuthProvider */}
+          <Header />
+          <main className="flex-grow container mx-auto px-4 py-8">{children}</main>
+          <Footer />
+          <Toaster />
+        </AuthProvider>
       </body>
     </html>
   );

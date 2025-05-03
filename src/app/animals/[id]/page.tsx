@@ -6,6 +6,7 @@ import { Separator } from '@/components/ui/separator';
 import { PawPrint, Heart, Home, Phone } from 'lucide-react';
 import Link from 'next/link';
 import type { Animal } from '@/components/animal-card'; // Import type
+// import { useAuth } from '@/context/auth-context'; // Import useAuth if needed for conditional actions
 
 // Placeholder data fetching function - Replace with actual Firestore fetch
 async function getAnimalDetails(id: string): Promise<Animal | null> {
@@ -28,16 +29,20 @@ async function getAnimalDetails(id: string): Promise<Animal | null> {
 
 
 export default async function AnimalDetailPage({ params }: { params: { id: string } }) {
+  // const { isAuthenticated, isVerified } = useAuth(); // Get auth state if needed for conditional UI/actions
   const animal = await getAnimalDetails(params.id);
+
 
   if (!animal) {
     return <div className="text-center text-muted-foreground">Animal not found.</div>;
   }
 
-  const getHealthBadgeVariant = (health: string) => {
-    if (health.toLowerCase().includes('good') || health.toLowerCase().includes('excellent')) return 'default';
-    if (health.toLowerCase().includes('needs') || health.toLowerCase().includes('minor')) return 'secondary';
-    return 'outline';
+  const getHealthBadgeVariant = (health: string): "default" | "secondary" | "outline" | "destructive" | null | undefined => {
+    const lowerHealth = health.toLowerCase();
+    if (lowerHealth.includes('good') || lowerHealth.includes('excellent') || lowerHealth.includes('vaccinated')) return 'default'; // Use primary color for positive status
+    if (lowerHealth.includes('needs') || lowerHealth.includes('minor') || lowerHealth.includes('check-up')) return 'secondary'; // Use secondary for neutral/needs attention
+     if (lowerHealth.includes('special') || lowerHealth.includes('urgent')) return 'destructive'; // Use destructive for serious issues
+    return 'outline'; // Default outline for unknown/other statuses
   };
 
 
@@ -66,15 +71,19 @@ export default async function AnimalDetailPage({ params }: { params: { id: strin
          {animal.images && animal.images.length > 0 && (
            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
             {animal.images.map((img, index) => (
-                <Image
-                key={index}
-                src={img}
-                alt={`${animal.name} - Image ${index + 1}`}
-                width={300}
-                height={200}
-                className={`rounded-lg object-cover w-full ${index === 0 ? 'sm:col-span-2 md:col-span-3' : ''}`}
-                data-ai-hint={`${animal.type} ${animal.name}`}
-                />
+                 // Ensure image has a key when mapping
+                <div key={index} className={`${index === 0 ? 'sm:col-span-2 md:col-span-3 h-64 sm:h-96' : 'h-48'}`}>
+                     <Image
+                        src={img}
+                        alt={`${animal.name} - Image ${index + 1}`}
+                        width={index === 0 ? 800 : 300} // Adjust width based on layout needs
+                        height={index === 0 ? 400 : 200} // Adjust height
+                        className={`rounded-lg object-cover w-full h-full`}
+                        data-ai-hint={`${animal.type} ${animal.name}`}
+                        priority={index === 0} // Prioritize loading the main image
+                    />
+                </div>
+
             ))}
            </div>
          )}
@@ -86,18 +95,22 @@ export default async function AnimalDetailPage({ params }: { params: { id: strin
            <div className="flex items-center gap-1"><strong className="text-foreground">Health:</strong> <Badge variant={getHealthBadgeVariant(animal.health)}>{animal.health}</Badge></div>
            <div><strong className="text-foreground">Shelter:</strong> {animal.shelterName || 'N/A'}</div>
            <div><strong className="text-foreground">Location:</strong> {animal.location}</div>
+           <div><strong className="text-foreground">Shelter ID:</strong> {animal.shelterId}</div>
+           <div><strong className="text-foreground">Posted:</strong> {new Date(animal.createdAt).toLocaleDateString()}</div>
         </div>
 
       </CardContent>
       <CardFooter className="flex flex-col sm:flex-row justify-between items-center gap-4">
-         {/* Placeholder Shelter Contact Info */}
+         {/* Placeholder Shelter Contact Info - Maybe hide behind login? */}
          <div className="text-sm text-muted-foreground flex items-center gap-2">
-            <Home className="h-4 w-4"/> {animal.shelterName || 'Contact Shelter for Details'} - ID: {animal.shelterId}
+            <Home className="h-4 w-4"/> {animal.shelterName || 'Contact Shelter for Details'}
          </div>
          <div className="flex gap-2">
-             <Button variant="outline" disabled={animal.isAdopted}>
+              {/* Add to Favorites - Requires login */}
+             <Button variant="outline" disabled={animal.isAdopted /* || !isAuthenticated */}>
                  <Heart className="mr-2 h-4 w-4" /> Add to Favorites
              </Button>
+              {/* Contact Shelter - Might require login or show public info */}
              <Button className="bg-accent hover:bg-accent/90 text-accent-foreground" disabled={animal.isAdopted}>
                  <Phone className="mr-2 h-4 w-4" /> Contact Shelter
              </Button>

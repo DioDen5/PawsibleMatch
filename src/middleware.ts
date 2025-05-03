@@ -3,7 +3,7 @@
 
 // IMPORTANT: This line ensures the middleware runs on the Node.js runtime,
 // allowing the use of Node.js modules like 'firebase-admin'.
-// export const runtime = 'nodejs'; // Temporarily commenting out to test if this causes the module not found issue
+export const runtime = 'nodejs';
 
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
@@ -16,12 +16,11 @@ import type { DecodedIdToken } from 'firebase-admin/auth';
 // Function to verify the token using Firebase Admin SDK
 async function verifyAuthToken(token: string): Promise<DecodedIdToken | null> {
   // Ensure admin SDK has initialized (it should have already, but double-check)
-  // Dynamic import check is problematic in middleware. Rely on initialization check in firebase-admin.ts
-  // if (!adminAuth) {
-  //    console.error("CRITICAL: Firebase Admin Auth is not initialized in middleware.");
-  //    // Return null to treat as unauthenticated
-  //    return null;
-  // }
+  if (!adminAuth) {
+     console.error("CRITICAL: Firebase Admin Auth is not initialized in middleware.");
+     // Return null to treat as unauthenticated
+     return null;
+  }
   try {
     // Verify the token using the imported adminAuth instance
     const decodedToken = await adminAuth.verifyIdToken(token, true); // Check for revocation
@@ -65,6 +64,7 @@ export async function middleware(request: NextRequest) {
         const decodedToken = await verifyAuthToken(token);
         if (decodedToken) {
             // User is logged in, redirect from auth pages
+            // Check custom claims for role if available
             const userRole = decodedToken.role as 'volunteer' | 'shelter' | undefined;
             const isVerified = decodedToken.email_verified;
 
@@ -75,7 +75,7 @@ export async function middleware(request: NextRequest) {
 
             const dashboardUrl = userRole === 'shelter' ? '/dashboard/shelter'
                                : userRole === 'volunteer' ? '/dashboard/volunteer'
-                               : '/dashboard';
+                               : '/dashboard'; // Default fallback
              console.log(`[Middleware] Redirecting logged-in verified user ${decodedToken.uid} (role: ${userRole || 'N/A'}) from ${pathname} to ${dashboardUrl}`);
             return NextResponse.redirect(new URL(dashboardUrl, request.url));
         }
@@ -133,10 +133,10 @@ export async function middleware(request: NextRequest) {
 
     if (pathname === '/auth/verify-email' && isVerified) {
       // Verified user trying to access verify page, redirect to dashboard
-      const userRole = decodedToken.role as 'volunteer' | 'shelter' | undefined;
-      const dashboardUrl = userRole === 'shelter' ? '/dashboard/shelter'
-                         : userRole === 'volunteer' ? '/dashboard/volunteer'
-                         : '/dashboard';
+       const userRole = decodedToken.role as 'volunteer' | 'shelter' | undefined;
+       const dashboardUrl = userRole === 'shelter' ? '/dashboard/shelter'
+                           : userRole === 'volunteer' ? '/dashboard/volunteer'
+                           : '/dashboard'; // Default fallback
       console.log(`[Middleware] Verified user ${decodedToken.uid} on verify page. Redirecting to ${dashboardUrl}.`);
       return NextResponse.redirect(new URL(dashboardUrl, request.url));
     }
@@ -148,8 +148,9 @@ export async function middleware(request: NextRequest) {
           return NextResponse.redirect(new URL('/auth/verify-email', request.url));
        }
 
+      // Use custom claim 'role' if present in the token
       const userRole = decodedToken.role as 'volunteer' | 'shelter' | undefined;
-      console.log(`[Middleware] Role check for verified user ${decodedToken.uid} (role: ${userRole || 'N/A'}) accessing ${pathname}`);
+      console.log(`[Middleware] Role check for verified user ${decodedToken.uid} (role from token: ${userRole || 'N/A'}) accessing ${pathname}`);
 
       if (pathname === '/dashboard' || pathname === '/dashboard/') {
         if (userRole === 'volunteer') {
@@ -159,23 +160,13 @@ export async function middleware(request: NextRequest) {
           console.log(`[Middleware] Redirecting user ${decodedToken.uid} from /dashboard to /dashboard/shelter`);
           return NextResponse.redirect(new URL('/dashboard/shelter', request.url));
         } else {
-          // If role is missing, try fetching from Firestore as a fallback (might be slow in middleware)
-          // This requires admin SDK to be initialized properly.
-          try {
-             // Note: Consider implications of fetching Firestore data in middleware (latency)
-             // const firestoreRole = await getRoleFromFirestore(decodedToken.uid); // Need to implement this helper
-             // if (firestoreRole) { ... handle redirection based on firestoreRole }
-             // else { throw new Error('Role not found in token or Firestore'); }
-             console.error(`[Middleware] User ${decodedToken.uid} lacks 'role' claim in token. Redirecting to login.`);
-
-          } catch (dbError) {
-              console.error(`[Middleware] Error fetching role for ${decodedToken.uid} or role missing:`, dbError);
-          }
-
-          // Default redirect if role is missing or DB fetch fails
+          // Role missing in token - this indicates a potential issue during signup/profile creation
+          // Or the custom claim wasn't set correctly.
+          console.error(`[Middleware] CRITICAL: User ${decodedToken.uid} lacks 'role' custom claim in token. Redirecting to login.`);
           const loginUrl = new URL('/auth/login', request.url);
-          loginUrl.searchParams.set('error', 'missing_role');
+          loginUrl.searchParams.set('error', 'missing_role_claim');
           const response = NextResponse.redirect(loginUrl);
+          // Log out the user by clearing the cookie if role is missing
           response.cookies.delete('fb-auth-token');
           return response;
         }
@@ -184,12 +175,12 @@ export async function middleware(request: NextRequest) {
       // Prevent accessing the wrong dashboard type
       if (pathname.startsWith('/dashboard/shelter') && userRole !== 'shelter') {
         console.log(`[Middleware] Unauthorized access attempt by ${decodedToken.uid} (role: ${userRole}) to /dashboard/shelter. Redirecting.`);
-        const correctDashboard = userRole === 'volunteer' ? '/dashboard/volunteer' : '/dashboard';
+        const correctDashboard = userRole === 'volunteer' ? '/dashboard/volunteer' : '/dashboard'; // Redirect to volunteer or base
         return NextResponse.redirect(new URL(correctDashboard, request.url));
       }
       if (pathname.startsWith('/dashboard/volunteer') && userRole !== 'volunteer') {
         console.log(`[Middleware] Unauthorized access attempt by ${decodedToken.uid} (role: ${userRole}) to /dashboard/volunteer. Redirecting.`);
-        const correctDashboard = userRole === 'shelter' ? '/dashboard/shelter' : '/dashboard';
+        const correctDashboard = userRole === 'shelter' ? '/dashboard/shelter' : '/dashboard'; // Redirect to shelter or base
         return NextResponse.redirect(new URL(correctDashboard, request.url));
       }
     }
@@ -221,17 +212,3 @@ export const config = {
      '/((?!api|_next/static|_next/image|favicon.ico|healthz|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
   ],
 };
-
-// Helper function to potentially fetch role from Firestore (needs admin SDK)
-// async function getRoleFromFirestore(uid: string): Promise<'volunteer' | 'shelter' | null> {
-//    try {
-//        const userDoc = await adminDb.collection('users').doc(uid).get();
-//        if (userDoc.exists) {
-//            return userDoc.data()?.role as 'volunteer' | 'shelter' | null;
-//        }
-//        return null;
-//    } catch (error) {
-//        console.error("Error fetching role from Firestore in middleware:", error);
-//        return null; // Return null on error
-//    }
-// }

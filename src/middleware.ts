@@ -1,8 +1,9 @@
+
 // src/middleware.ts
 
 // IMPORTANT: This line ensures the middleware runs on the Node.js runtime,
 // allowing the use of Node.js modules like 'firebase-admin'.
-export const runtime = 'nodejs';
+// export const runtime = 'nodejs'; // Temporarily commenting out to test if this causes the module not found issue
 
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
@@ -15,11 +16,12 @@ import type { DecodedIdToken } from 'firebase-admin/auth';
 // Function to verify the token using Firebase Admin SDK
 async function verifyAuthToken(token: string): Promise<DecodedIdToken | null> {
   // Ensure admin SDK has initialized (it should have already, but double-check)
-  if (!adminAuth) {
-     console.error("CRITICAL: Firebase Admin Auth is not initialized in middleware.");
-     // Return null to treat as unauthenticated
-     return null;
-  }
+  // Dynamic import check is problematic in middleware. Rely on initialization check in firebase-admin.ts
+  // if (!adminAuth) {
+  //    console.error("CRITICAL: Firebase Admin Auth is not initialized in middleware.");
+  //    // Return null to treat as unauthenticated
+  //    return null;
+  // }
   try {
     // Verify the token using the imported adminAuth instance
     const decodedToken = await adminAuth.verifyIdToken(token, true); // Check for revocation
@@ -37,12 +39,15 @@ async function verifyAuthToken(token: string): Promise<DecodedIdToken | null> {
 }
 
 
+// --- Middleware Logic ---
+// This function MUST be exported
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
   const tokenCookie = request.cookies.get('fb-auth-token'); // Adjust cookie name if it differs
   const token = tokenCookie?.value;
 
-  console.log(`Middleware: Path: ${pathname}, Token present: ${!!token}`);
+  // Log entry point for debugging
+  console.log(`[Middleware] Path: ${pathname}, Token present: ${!!token}`);
 
   // Define route categories
   const protectedRoutes = [
@@ -50,39 +55,38 @@ export async function middleware(request: NextRequest) {
     '/submit-found',
     // Add any other routes that need login + verification
   ];
-  const requiresAuthRoutes = ['/auth/verify-email']; // Needs login, but not necessarily verification (e.g., the verify page itself)
+  const requiresAuthRoutes = ['/auth/verify-email']; // Needs login, but not necessarily verification
   const publicAuthRoutes = ['/auth/login', '/auth/signup', '/auth/forgot-password']; // Login/signup pages
 
 
-  // --- 1. Handle Public Auth Routes (Login, Signup, Forgot Password) ---
+  // --- 1. Handle Public Auth Routes ---
   if (publicAuthRoutes.some((route) => pathname.startsWith(route))) {
     if (token) {
         const decodedToken = await verifyAuthToken(token);
         if (decodedToken) {
-            // User is logged in, redirect from auth pages to dashboard
-            // Fetch role from custom claims if available
+            // User is logged in, redirect from auth pages
             const userRole = decodedToken.role as 'volunteer' | 'shelter' | undefined;
             const isVerified = decodedToken.email_verified;
 
             if (!isVerified) {
-                 console.log(`Middleware: Logged-in user ${decodedToken.uid} is not verified. Redirecting to /auth/verify-email from ${pathname}`);
+                 console.log(`[Middleware] Logged-in user ${decodedToken.uid} is not verified. Redirecting to /auth/verify-email from ${pathname}`);
                  return NextResponse.redirect(new URL('/auth/verify-email', request.url));
             }
 
             const dashboardUrl = userRole === 'shelter' ? '/dashboard/shelter'
                                : userRole === 'volunteer' ? '/dashboard/volunteer'
-                               : '/dashboard'; // Fallback if role claim is missing (should ideally not happen)
-             console.log(`Middleware: Redirecting logged-in verified user ${decodedToken.uid} (role: ${userRole || 'N/A'}) from ${pathname} to ${dashboardUrl}`);
+                               : '/dashboard';
+             console.log(`[Middleware] Redirecting logged-in verified user ${decodedToken.uid} (role: ${userRole || 'N/A'}) from ${pathname} to ${dashboardUrl}`);
             return NextResponse.redirect(new URL(dashboardUrl, request.url));
         }
-         // Invalid token? Clear it and let them access the auth page.
+         // Invalid token on auth page? Clear it and let them access.
          const response = NextResponse.next();
-          console.log(`Middleware: Invalid token on auth page ${pathname}. Clearing cookie.`);
+          console.log(`[Middleware] Invalid token on auth page ${pathname}. Clearing cookie.`);
          response.cookies.delete('fb-auth-token');
          return response;
     }
     // No token, allow access to public auth routes
-    console.log(`Middleware: Allowing anonymous access to public auth route: ${pathname}`);
+    console.log(`[Middleware] Allowing anonymous access to public auth route: ${pathname}`);
     return NextResponse.next();
   }
 
@@ -91,121 +95,118 @@ export async function middleware(request: NextRequest) {
   const isAuthRequiredRoute = requiresAuthRoutes.some((route) => pathname.startsWith(route));
 
   if (isProtectedRoute || isAuthRequiredRoute) {
-    console.log(`Middleware: Accessing protected/auth-required route: ${pathname}`);
+    console.log(`[Middleware] Accessing protected/auth-required route: ${pathname}`);
     if (!token) {
-      // No token, redirect to login
        const loginUrl = new URL('/auth/login', request.url);
        loginUrl.searchParams.set('redirect', pathname);
-       console.log(`Middleware: No token for ${pathname}. Redirecting to login.`);
+       console.log(`[Middleware] No token for ${pathname}. Redirecting to login.`);
       return NextResponse.redirect(loginUrl);
     }
 
-    // Verify the token
     const decodedToken = await verifyAuthToken(token);
 
     if (!decodedToken) {
-      // Invalid/expired token, redirect to login and clear cookie
        const loginUrl = new URL('/auth/login', request.url);
        loginUrl.searchParams.set('redirect', pathname);
-       console.log(`Middleware: Invalid token for ${pathname}. Redirecting to login and clearing cookie.`);
+       console.log(`[Middleware] Invalid token for ${pathname}. Redirecting to login and clearing cookie.`);
        const response = NextResponse.redirect(loginUrl);
        response.cookies.delete('fb-auth-token');
       return response;
     }
 
-    console.log(`Middleware: Token verified for user ${decodedToken.uid}`);
+    console.log(`[Middleware] Token verified for user ${decodedToken.uid}`);
 
     // --- 3. Check Email Verification ---
     const isVerified = decodedToken.email_verified;
 
-    // If accessing a fully protected route and not verified, redirect to verify page
     if (isProtectedRoute && !isVerified) {
-      const verifyUrl = new URL('/auth/verify-email', request.url);
-      // Avoid redirect loop if already on the verify page
-      if (pathname !== '/auth/verify-email') {
-        console.log(`Middleware: User ${decodedToken.uid} not verified for protected route ${pathname}. Redirecting to verify email.`);
-        return NextResponse.redirect(verifyUrl);
+      // Allow access to /auth/verify-email itself even if unverified
+      if (pathname === '/auth/verify-email') {
+        console.log(`[Middleware] Allowing unverified user ${decodedToken.uid} access to /auth/verify-email.`);
+        return NextResponse.next();
       }
-       // Allow access if ON the verify page itself, even if not verified
-       console.log(`Middleware: Allowing unverified user ${decodedToken.uid} access to ${pathname}.`);
-       // Fall through to allow access to /auth/verify-email
+      // Otherwise, redirect to verify page
+      const verifyUrl = new URL('/auth/verify-email', request.url);
+      console.log(`[Middleware] User ${decodedToken.uid} not verified for protected route ${pathname}. Redirecting to verify email.`);
+      return NextResponse.redirect(verifyUrl);
     }
 
-    // If accessing the verify page BUT IS verified, redirect to dashboard
     if (pathname === '/auth/verify-email' && isVerified) {
+      // Verified user trying to access verify page, redirect to dashboard
       const userRole = decodedToken.role as 'volunteer' | 'shelter' | undefined;
       const dashboardUrl = userRole === 'shelter' ? '/dashboard/shelter'
                          : userRole === 'volunteer' ? '/dashboard/volunteer'
-                         : '/dashboard'; // Fallback
-      console.log(`Middleware: Verified user ${decodedToken.uid} on verify page. Redirecting to ${dashboardUrl}.`);
+                         : '/dashboard';
+      console.log(`[Middleware] Verified user ${decodedToken.uid} on verify page. Redirecting to ${dashboardUrl}.`);
       return NextResponse.redirect(new URL(dashboardUrl, request.url));
     }
 
-    // Allow verified users on the verify page to proceed (they might have landed there accidentally)
-    // Or allow unverified users on the verify page to proceed
-    if (pathname === '/auth/verify-email') {
-         console.log(`Middleware: Allowing user ${decodedToken.uid} (Verified: ${isVerified}) access to ${pathname}.`);
-         return NextResponse.next();
-    }
-
-
     // --- 4. Role-Based Redirect for /dashboard ---
     if (pathname.startsWith('/dashboard')) {
-       // At this point, user MUST be verified if accessing a dashboard route
        if (!isVerified) {
-         // This case should ideally be caught earlier, but as a safeguard:
-          console.warn(`Middleware: Unverified user ${decodedToken.uid} reached dashboard check for ${pathname}. Redirecting to verify.`);
+          console.warn(`[Middleware] Safeguard: Unverified user ${decodedToken.uid} reached dashboard check for ${pathname}. Redirecting to verify.`);
           return NextResponse.redirect(new URL('/auth/verify-email', request.url));
        }
 
       const userRole = decodedToken.role as 'volunteer' | 'shelter' | undefined;
-      console.log(`Middleware: Role check for verified user ${decodedToken.uid} (role: ${userRole || 'N/A'}) accessing ${pathname}`);
+      console.log(`[Middleware] Role check for verified user ${decodedToken.uid} (role: ${userRole || 'N/A'}) accessing ${pathname}`);
 
-      // Redirect base /dashboard or /dashboard/ to specific role dashboard
       if (pathname === '/dashboard' || pathname === '/dashboard/') {
         if (userRole === 'volunteer') {
-          console.log(`Middleware: Redirecting user ${decodedToken.uid} from /dashboard to /dashboard/volunteer`);
+          console.log(`[Middleware] Redirecting user ${decodedToken.uid} from /dashboard to /dashboard/volunteer`);
           return NextResponse.redirect(new URL('/dashboard/volunteer', request.url));
         } else if (userRole === 'shelter') {
-          console.log(`Middleware: Redirecting user ${decodedToken.uid} from /dashboard to /dashboard/shelter`);
+          console.log(`[Middleware] Redirecting user ${decodedToken.uid} from /dashboard to /dashboard/shelter`);
           return NextResponse.redirect(new URL('/dashboard/shelter', request.url));
         } else {
-          // Role missing? Problem with signup/claims. Redirect to login.
-          console.error(`Middleware: User ${decodedToken.uid} lacks 'role' claim in token. Redirecting to login.`);
+          // If role is missing, try fetching from Firestore as a fallback (might be slow in middleware)
+          // This requires admin SDK to be initialized properly.
+          try {
+             // Note: Consider implications of fetching Firestore data in middleware (latency)
+             // const firestoreRole = await getRoleFromFirestore(decodedToken.uid); // Need to implement this helper
+             // if (firestoreRole) { ... handle redirection based on firestoreRole }
+             // else { throw new Error('Role not found in token or Firestore'); }
+             console.error(`[Middleware] User ${decodedToken.uid} lacks 'role' claim in token. Redirecting to login.`);
+
+          } catch (dbError) {
+              console.error(`[Middleware] Error fetching role for ${decodedToken.uid} or role missing:`, dbError);
+          }
+
+          // Default redirect if role is missing or DB fetch fails
           const loginUrl = new URL('/auth/login', request.url);
           loginUrl.searchParams.set('error', 'missing_role');
           const response = NextResponse.redirect(loginUrl);
-          response.cookies.delete('fb-auth-token'); // Clear token
+          response.cookies.delete('fb-auth-token');
           return response;
         }
       }
 
       // Prevent accessing the wrong dashboard type
       if (pathname.startsWith('/dashboard/shelter') && userRole !== 'shelter') {
-        console.log(`Middleware: Unauthorized access attempt by ${decodedToken.uid} (role: ${userRole}) to /dashboard/shelter. Redirecting.`);
-        const correctDashboard = userRole === 'volunteer' ? '/dashboard/volunteer' : '/dashboard'; // Go to correct one or fallback
+        console.log(`[Middleware] Unauthorized access attempt by ${decodedToken.uid} (role: ${userRole}) to /dashboard/shelter. Redirecting.`);
+        const correctDashboard = userRole === 'volunteer' ? '/dashboard/volunteer' : '/dashboard';
         return NextResponse.redirect(new URL(correctDashboard, request.url));
       }
       if (pathname.startsWith('/dashboard/volunteer') && userRole !== 'volunteer') {
-        console.log(`Middleware: Unauthorized access attempt by ${decodedToken.uid} (role: ${userRole}) to /dashboard/volunteer. Redirecting.`);
-        const correctDashboard = userRole === 'shelter' ? '/dashboard/shelter' : '/dashboard'; // Go to correct one or fallback
+        console.log(`[Middleware] Unauthorized access attempt by ${decodedToken.uid} (role: ${userRole}) to /dashboard/volunteer. Redirecting.`);
+        const correctDashboard = userRole === 'shelter' ? '/dashboard/shelter' : '/dashboard';
         return NextResponse.redirect(new URL(correctDashboard, request.url));
       }
     }
 
     // --- 5. Access Granted ---
-    // User is authenticated, verified (if needed for the specific route), and has correct role (if checked).
-    console.log(`Middleware: Access granted for user ${decodedToken.uid} (Verified: ${isVerified}) to ${pathname}.`);
+    console.log(`[Middleware] Access granted for user ${decodedToken.uid} (Verified: ${isVerified}) to ${pathname}.`);
     return NextResponse.next();
   }
 
-  // --- Default: Allow access to all other public routes (e.g., /, /about, /animals) ---
-  console.log(`Middleware: Allowing public access to route: ${pathname}`);
+  // --- Default: Allow access to all other public routes ---
+  console.log(`[Middleware] Allowing public access to route: ${pathname}`);
   return NextResponse.next();
 }
 
 // --- Middleware Configuration ---
 // This configures which paths the middleware function will run on.
+// This MUST be exported
 export const config = {
   matcher: [
     /*
@@ -220,3 +221,17 @@ export const config = {
      '/((?!api|_next/static|_next/image|favicon.ico|healthz|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
   ],
 };
+
+// Helper function to potentially fetch role from Firestore (needs admin SDK)
+// async function getRoleFromFirestore(uid: string): Promise<'volunteer' | 'shelter' | null> {
+//    try {
+//        const userDoc = await adminDb.collection('users').doc(uid).get();
+//        if (userDoc.exists) {
+//            return userDoc.data()?.role as 'volunteer' | 'shelter' | null;
+//        }
+//        return null;
+//    } catch (error) {
+//        console.error("Error fetching role from Firestore in middleware:", error);
+//        return null; // Return null on error
+//    }
+// }

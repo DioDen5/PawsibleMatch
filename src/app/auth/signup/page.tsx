@@ -1,3 +1,4 @@
+
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -65,11 +66,42 @@ export default function SignupPage() {
       const user = userCredential.user;
 
       if (user) {
-        // 1. Create Firestore user profile
-        await createUserProfile(user, values.role as UserRole, false); // Initially not verified
+        // 1. Create Firestore user profile (wrap in try-catch for potential errors)
+        try {
+            await createUserProfile(user, values.role as UserRole, false); // Initially not verified
+        } catch (profileError) {
+             console.error("Error creating Firestore profile:", profileError);
+             // If profile creation fails, maybe try to delete the auth user or alert the user
+             // For now, log and alert. The user exists in Auth but not fully setup.
+             toast({
+                title: "Signup Incomplete",
+                description: "Account created, but profile setup failed. Please contact support.",
+                variant: "destructive",
+             });
+             setIsLoading(false);
+             // Consider signing the user out here: await firebaseSignOut(auth);
+             return; // Stop the process here
+        }
 
-        // 2. Send verification email
-        await sendEmailVerification(user);
+
+        // 2. Send verification email (wrap in try-catch)
+        try {
+            await sendEmailVerification(user);
+        } catch(verificationError) {
+            console.error("Error sending verification email:", verificationError);
+            // User is created, profile might be created, but verification email failed.
+            // Alert the user they need to verify, but maybe manually later or via login page.
+             toast({
+                title: "Account Created - Verification Email Failed",
+                description: "Your account is created, but we couldn't send the verification email. You might be prompted to verify later.",
+                variant: "destructive", // Use destructive or default? Default might be less alarming.
+             });
+              // Still redirect to verification prompt page, maybe it offers a resend option.
+             router.push('/auth/verify-email');
+             setIsLoading(false);
+             return;
+        }
+
 
         toast({
           title: "Account Created!",
@@ -78,15 +110,23 @@ export default function SignupPage() {
 
         // 3. Redirect to verification prompt page
         router.push('/auth/verify-email');
+      } else {
+           // This case should ideally not happen if createUserWithEmailAndPassword succeeds
+           throw new Error("User creation succeeded but user object is null.");
       }
     } catch (error: any) {
       console.error("Signup Error:", error);
       let errorMessage = "An error occurred during sign up. Please try again.";
       if (error.code === 'auth/email-already-in-use') {
-        errorMessage = "This email address is already registered.";
+        errorMessage = "This email address is already registered. Try logging in instead.";
       } else if (error.code === 'auth/weak-password') {
-        errorMessage = "The password is too weak.";
+        errorMessage = "The password is too weak. Please choose a stronger password.";
+      } else if (error.code === 'auth/invalid-email') {
+        errorMessage = "The email address is not valid.";
       }
+      // Add more specific Firebase Auth error codes as needed
+      // e.g., auth/operation-not-allowed if email/password sign-in isn't enabled
+
       toast({
         title: "Signup Failed",
         description: errorMessage,
@@ -129,9 +169,19 @@ export default function SignupPage() {
       }
     } catch (error: any) {
       console.error("Google Sign-Up Error:", error);
+       let errorMessage = "An error occurred during Google Sign-Up. Please try again.";
+       if (error.code === 'auth/account-exists-with-different-credential') {
+           errorMessage = "An account already exists with this email using a different sign-in method (e.g., password). Try logging in with that method.";
+       } else if (error.code === 'auth/popup-closed-by-user') {
+           errorMessage = "Google Sign-Up cancelled.";
+       } else if (error.code === 'auth/cancelled-popup-request') {
+            errorMessage = "Multiple pop-up requests. Please try again.";
+       }
+      // Add other relevant codes: auth/operation-not-allowed, auth/popup-blocked
+
       toast({
         title: "Google Sign-Up Failed",
-        description: error.message || "An error occurred. Please try again.",
+        description: error.message || errorMessage, // Prefer Firebase message if available
         variant: "destructive",
       });
     } finally {
@@ -142,7 +192,7 @@ export default function SignupPage() {
    const handleRoleSelected = async (selectedRole: UserRole) => {
         if (!pendingUser) return;
 
-        setIsLoading(true);
+        setIsLoading(true); // Use main loading state for consistency
         setShowRoleDialog(false);
 
         try {
@@ -151,7 +201,7 @@ export default function SignupPage() {
 
             toast({
                 title: "Account Setup Complete!",
-                description: `Welcome ${pendingUser.displayName || 'User'}! Your role is set to ${selectedRole}.`,
+                description: `Welcome ${pendingUser.displayName || 'User'}! Your role is set to ${selectedRole}. Redirecting...`,
             });
 
              // Redirect after successful profile creation with role
@@ -167,12 +217,15 @@ export default function SignupPage() {
              console.error("Error creating profile after role selection:", error);
              toast({
                 title: "Setup Error",
-                description: "Could not save your role. Please try logging in again.",
+                description: "Could not save your role information. Please try logging in again or contact support.",
                 variant: "destructive",
              });
+             // Consider signing out the user here if setup is incomplete
+             // await firebaseSignOut(auth);
+             setPendingUser(null); // Clear pending user state
         } finally {
             setIsLoading(false);
-            setPendingUser(null);
+            // Don't clear pendingUser here if redirect happens successfully in try block
         }
     };
 
@@ -306,9 +359,11 @@ export default function SignupPage() {
             isOpen={showRoleDialog}
             onClose={() => {
                 setShowRoleDialog(false);
-                setPendingUser(null);
-                setIsLoading(false);
+                setPendingUser(null); // Clear pending user if dialog is closed without selection
+                setIsLoading(false); // Reset loading state if closing dialog
                 setIsGoogleLoading(false);
+                 // Maybe sign out if they cancel role selection? Depends on desired flow.
+                 // console.log("Role selection cancelled.");
             }}
             onRoleSelect={handleRoleSelected}
             isLoading={isLoading || isGoogleLoading} // Pass combined loading state
